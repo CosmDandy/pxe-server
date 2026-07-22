@@ -15,6 +15,8 @@ item ubuntu     Ubuntu Server {{ pxe_ubuntu_release }} (automated)
 {% if pxe_proxmox_enabled %}
 item proxmox    Proxmox VE {{ pxe_proxmox_release }} (automated)
 {% endif %}
+item --gap --   Danger zone
+item wipe       Wipe ALL disks (destroys everything, then powers off)
 item --gap --   Other
 item netbootxyz netboot.xyz - Proxmox, memtest, utils (needs internet)
 item shell      iPXE shell
@@ -45,6 +47,21 @@ echo Answers are fetched from the URL in DHCP option 250.
 # kernel plus initrd (56 MB) is not enough to install from.
 sanboot --no-describe ${http}/proxmox/proxmox-ve_{{ pxe_proxmox_release }}.iso || goto failed
 {% endif %}
+
+:wipe
+echo
+echo *** THIS WILL DESTROY ALL DATA ON ALL DISKS OF THIS MACHINE ***
+echo Machine powers off when done.
+echo
+# 0x79 = 'y'. Любая другая клавиша или 15 секунд тишины - назад в меню.
+prompt --key 0x79 --timeout 15000 Press 'y' to confirm, anything else to cancel... && goto do_wipe || goto menu
+
+:do_wipe
+echo Loading wiper...
+kernel ${http}/ubuntu/vmlinuz
+initrd ${http}/ubuntu/initrd
+imgargs vmlinuz initrd=initrd ip=dhcp url=${http}/ubuntu/ubuntu-{{ pxe_ubuntu_release }}.iso autoinstall ds=nocloud-net;s=${http}/ubuntu/wipe/ network-config=disabled ramdisk_size=4000000 ---
+boot || goto failed
 
 :netbootxyz
 echo Chainloading netboot.xyz...

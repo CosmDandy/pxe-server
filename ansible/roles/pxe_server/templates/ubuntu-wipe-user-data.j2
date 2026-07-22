@@ -1,0 +1,25 @@
+#cloud-config
+# Managed by Ansible (role: pxe_server) — правки затрутся
+#
+# Профиль «стереть все диски»: early-commands выполняются до разметки,
+# poweroff в конце не даёт установке начаться. Машина загружается,
+# чистит диски и выключается.
+autoinstall:
+  version: 1
+
+  early-commands:
+    - |
+      echo '=== WIPING ALL DISKS ===' > /dev/tty1
+      for d in /dev/sd? /dev/sd?? /dev/nvme?n? /dev/vd?; do
+        [ -b "$d" ] || continue
+        echo "wiping $d" > /dev/tty1
+        wipefs -af "$d" || true
+        # начало диска: таблица разделов, метаданные LVM/RAID
+        dd if=/dev/zero of="$d" bs=1M count=16 conv=fsync || true
+        # конец диска: запасная копия GPT живёт именно там
+        sz=$(blockdev --getsz "$d")
+        dd if=/dev/zero of="$d" bs=512 seek=$((sz-4096)) count=4096 conv=fsync || true
+      done
+      echo '=== DONE, powering off ===' > /dev/tty1
+      sleep 3
+      poweroff

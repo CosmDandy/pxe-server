@@ -9,6 +9,7 @@
   loop:
     - "{{ pxe_http_root }}/ubuntu"
     - "{{ pxe_http_root }}/ubuntu/autoinstall"
+    - "{{ pxe_http_root }}/ubuntu/wipe"
 
 - name: Fetch upstream checksums
   ansible.builtin.get_url:
@@ -101,3 +102,18 @@
     - user-data
     - meta-data
     - vendor-data
+
+# Профиль очистки дисков: тот же датасорс NoCloud, другой каталог.
+- name: Install disk-wipe answer files
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ pxe_http_root }}/ubuntu/wipe/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - {src: ubuntu-wipe-user-data.j2, dest: user-data}
+    - {src: ubuntu-meta-data.j2, dest: meta-data}
+    - {src: ubuntu-vendor-data.j2, dest: vendor-data}
+  loop_control:
+    label: "{{ item.dest }}"
