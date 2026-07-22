@@ -1,0 +1,9 @@
+# Managed by Ansible (role: pxe_server) — правки затрутся
+network:
+  version: 2
+  ethernets:
+    {{ pxe_interface }}:
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - {{ pxe_server_ip }}/{{ pxe_prefix }}

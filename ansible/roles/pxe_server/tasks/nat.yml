@@ -1,0 +1,65 @@
+---
+# Клиенты PXE-сегмента изолированы от внешней сети, поэтому сервер выступает
+# для них маршрутизатором: включаем форвардинг и подменяем адрес источника
+# на внешнем интерфейсе.
+
+- name: Detect WAN interface
+  ansible.builtin.shell:
+    cmd: ip route show default | awk '{print $5; exit}'
+  register: pxe_wan_detected
+  changed_when: false
+  when: not pxe_wan_interface
+
+- name: Set WAN interface
+  ansible.builtin.set_fact:
+    pxe_wan: "{{ pxe_wan_interface or pxe_wan_detected.stdout | trim }}"
+
+- name: Fail when WAN interface is unknown
+  ansible.builtin.assert:
+    that: pxe_wan | length > 0
+    fail_msg: >-
+      Не удалось определить внешний интерфейс — задайте pxe_wan_interface явно.
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-pxe-forward.conf
+    state: present
+    reload: true
+
+- name: Install persistent firewall tooling
+  ansible.builtin.apt:
+    name: iptables-persistent
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Masquerade PXE segment behind WAN address
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    out_interface: "{{ pxe_wan }}"
+    source: "{{ pxe_network }}"
+    jump: MASQUERADE
+    state: present
+  notify: Save iptables rules
+
+- name: Allow forwarding from PXE segment to WAN
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: "{{ pxe_interface }}"
+    out_interface: "{{ pxe_wan }}"
+    jump: ACCEPT
+    state: present
+  notify: Save iptables rules
+
+- name: Allow established traffic back into PXE segment
+  ansible.builtin.iptables:
+    chain: FORWARD
+    in_interface: "{{ pxe_wan }}"
+    out_interface: "{{ pxe_interface }}"
+    ctstate: RELATED,ESTABLISHED
+    jump: ACCEPT
+    state: present
+  notify: Save iptables rules

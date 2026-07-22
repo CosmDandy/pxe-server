@@ -1,0 +1,45 @@
+#cloud-config
+# Managed by Ansible (role: pxe_server) — правки затрутся
+autoinstall:
+  version: 1
+
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+
+  identity:
+    hostname: {{ pxe_ubuntu_hostname }}
+    username: {{ pxe_ubuntu_username }}
+    password: "{{ pxe_ubuntu_password_hash }}"
+
+  ssh:
+    install-server: true
+    allow-pw: true
+{% if pxe_ubuntu_authorized_keys %}
+    authorized-keys:
+{% for key in pxe_ubuntu_authorized_keys %}
+      - "{{ key }}"
+{% endfor %}
+{% endif %}
+
+  # Остатки старой разметки (LVM, ZFS, RAID-метаданные) валят установщик
+  # на этапе разметки — затираем всё до неё.
+  early-commands:
+    - |
+      for d in /dev/sd? /dev/nvme?n1; do
+        [ -b "$d" ] || continue
+        wipefs -af "$d" || true
+        dd if=/dev/zero of="$d" bs=1M count=8 conv=fsync || true
+      done
+
+  storage:
+    layout:
+      name: lvm
+
+  packages:
+    - qemu-guest-agent
+
+  # Установщик перезагрузит машину сам; PXE снова предложит меню,
+  # поэтому в BIOS порядок загрузки должен быть: диск выше сети,
+  # либо в меню выбирается пункт локального диска.
+  shutdown: reboot

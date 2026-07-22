@@ -1,0 +1,21 @@
+# Managed by Ansible (role: pxe_server) — правки затрутся
+
+[global]
+keyboard = "{{ pxe_proxmox_keyboard }}"
+country = "{{ pxe_proxmox_country }}"
+fqdn = "{{ pxe_proxmox_fqdn }}"
+mailto = "{{ pxe_proxmox_mailto }}"
+timezone = "{{ pxe_proxmox_timezone }}"
+root-password = "{{ pxe_proxmox_root_password }}"
+
+[network]
+source = "from-dhcp"
+
+[disk-setup]
+filesystem = "{{ pxe_proxmox_filesystem }}"
+{% if pxe_proxmox_disk_list %}
+disk-list = {{ pxe_proxmox_disk_list | to_json }}
+{% else %}
+# Диск не задан явно — установщик выберет первый подходящий
+filter.ID_TYPE = "disk"
+{% endif %}

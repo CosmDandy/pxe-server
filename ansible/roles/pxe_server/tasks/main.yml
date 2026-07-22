@@ -1,0 +1,147 @@
+---
+# Сеть настраивается первой: PXE-интерфейс по DHCP приносит собственный
+# маршрут по умолчанию с низкой метрикой и перебивает выход в интернет,
+# из-за чего apt не может достучаться до зеркал.
+- name: Configure static address on PXE interface
+  ansible.builtin.template:
+    src: 99-pxe.yaml.j2
+    dest: /etc/netplan/99-pxe.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Apply netplan
+
+- name: Apply pending network changes before installing packages
+  ansible.builtin.meta: flush_handlers
+
+- name: Install PXE packages
+  ansible.builtin.apt:
+    name:
+      - dnsmasq
+      - ipxe
+      - nginx
+      - libarchive-tools
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create HTTP root
+  ansible.builtin.file:
+    path: "{{ pxe_http_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure nginx for PXE assets
+  ansible.builtin.template:
+    src: nginx-pxe.conf.j2
+    dest: /etc/nginx/sites-available/pxe.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Enable nginx PXE site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/pxe.conf
+    dest: /etc/nginx/sites-enabled/pxe.conf
+    state: link
+    owner: root
+    group: root
+  notify: Reload nginx
+
+- name: Disable default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Create TFTP root
+  ansible.builtin.file:
+    path: "{{ pxe_tftp_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install bootloaders shipped in the ipxe package
+  ansible.builtin.copy:
+    src: "{{ pxe_ipxe_pkg_dir }}/{{ item.loader }}"
+    dest: "{{ pxe_tftp_root }}/{{ item.loader }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ pxe_architectures | selectattr('source', 'eq', 'package') | list }}"
+  loop_control:
+    label: "{{ item.name }} -> {{ item.loader }}"
+
+- name: Check which downloaded bootloaders are already present
+  ansible.builtin.stat:
+    path: "{{ pxe_tftp_root }}/{{ item.loader }}"
+  loop: "{{ pxe_architectures | selectattr('source', 'eq', 'url') | list }}"
+  loop_control:
+    label: "{{ item.loader }}"
+  register: pxe_loader_stat
+
+# Скачиваем только отсутствующие: иначе каждый прогон ходит в интернет
+# и падает, когда сеть стенда недоступна.
+- name: Download bootloaders not shipped in the ipxe package
+  ansible.builtin.get_url:
+    url: "{{ item.item.url }}"
+    dest: "{{ pxe_tftp_root }}/{{ item.item.loader }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ pxe_loader_stat.results }}"
+  loop_control:
+    label: "{{ item.item.name }} -> {{ item.item.loader }}"
+  when: not item.stat.exists
+
+- name: Set up NAT for the PXE segment
+  ansible.builtin.include_tasks: nat.yml
+  when: pxe_nat_enabled | bool
+
+- name: Set up Ubuntu installer
+  ansible.builtin.include_tasks: ubuntu.yml
+  when: pxe_ubuntu_enabled | bool
+
+- name: Set up Proxmox installer
+  ansible.builtin.include_tasks: proxmox.yml
+  when: pxe_proxmox_enabled | bool
+
+- name: Install iPXE boot menu
+  ansible.builtin.template:
+    src: boot.ipxe.j2
+    dest: "{{ pxe_tftp_root }}/{{ pxe_boot_script }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Download extra bootloaders
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ pxe_tftp_root }}/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ pxe_extra_loaders }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Configure dnsmasq for PXE
+  ansible.builtin.template:
+    src: dnsmasq-pxe.conf.j2
+    dest: /etc/dnsmasq.d/pxe.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: dnsmasq --test --conf-file=%s
+  notify: Restart dnsmasq
+
+- name: Set dnsmasq service state
+  ansible.builtin.systemd_service:
+    name: dnsmasq
+    enabled: "{{ pxe_service_enabled | bool }}"
+    state: "{{ 'started' if pxe_service_enabled | bool else 'stopped' }}"

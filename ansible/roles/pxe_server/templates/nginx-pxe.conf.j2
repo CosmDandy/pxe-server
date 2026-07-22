@@ -1,0 +1,19 @@
+# Managed by Ansible (role: pxe_server) — правки затрутся
+
+server {
+    listen {{ pxe_server_ip }}:{{ pxe_http_port }};
+    server_name _;
+
+    root {{ pxe_http_root }};
+
+    # Установщики ходят по каталогам сами — индекс нужен для отладки
+    autoindex on;
+
+    # Образы крупные, отдаём без буферизации в память
+    sendfile on;
+    tcp_nopush on;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}

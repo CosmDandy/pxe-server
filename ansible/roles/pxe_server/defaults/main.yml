@@ -1,0 +1,139 @@
+---
+# Интерфейс, смотрящий в PXE-сегмент (изолированный линк к целевым серверам)
+pxe_interface: lima0
+
+# Адресация сегмента. PXE-сервер держит статику, клиенты берут из пула.
+pxe_server_ip: 192.168.50.1
+pxe_prefix: 24
+pxe_network: 192.168.50.0/24
+pxe_dhcp_start: 192.168.50.100
+pxe_dhcp_end: 192.168.50.200
+pxe_dhcp_lease: 12h
+
+pxe_tftp_root: /srv/tftp
+
+# Выпуск клиентов PXE-сегмента в интернет через внешний интерфейс сервера.
+# Нужен netboot.xyz (он качает образы сам, с целевой машины), установщику —
+# для обновлений, и свежепоставленной системе — чтобы сразу быть в сети.
+pxe_nat_enabled: true
+# MTU, сообщаемый клиентам (DHCP-опция 26). Путь наружу через стенд короче
+# стандартных 1500 — на маке трафик идёт через socket_vmnet и NAT Lima.
+# Клиент со стандартным MTU шлёт слишком большие пакеты, они теряются,
+# и загрузка образов зависает без внятной ошибки.
+pxe_client_mtu: 1400
+# Определяется автоматически по маршруту по умолчанию, если не задан явно
+pxe_wan_interface: ""
+
+# TFTP слишком медленный для ядер и образов — всё крупное отдаётся по HTTP.
+pxe_http_root: /srv/http
+pxe_http_port: 80
+
+# Скрипт, который получает уже загрузившийся iPXE (в отличие от прошивки,
+# которой отдаётся сам загрузчик)
+pxe_boot_script: boot.ipxe
+# HTTP: загрузчик из пакета ipxe собран без TLS и на https:// отвечает
+# «Permission denied»
+pxe_netbootxyz_url: http://boot.netboot.xyz/menu.ipxe
+pxe_menu_timeout: 30000
+
+# MAC-адреса, которым dnsmasq не отвечает. Сюда — хост-машина стенда:
+# иначе она берёт адрес из PXE-пула и уводит на него свой маршрут,
+# теряя доступ в основную сеть.
+pxe_dhcp_ignore_macs: []
+
+# Постоянные адреса за конкретными машинами: без них адрес меняется от
+# загрузки к загрузке и непонятно, к кому подключаешься.
+# Задавать вне диапазона pxe_dhcp_start..pxe_dhcp_end.
+#   - mac: 11:22:33:44:55:66
+#     ip: 192.168.50.20
+#     name: server1
+pxe_dhcp_reservations: []
+
+# Предохранитель: dnsmasq раздаёт DHCP и способен сломать чужую сеть,
+# если интерфейс окажется воткнут не в целевой сервер, а в общий свитч.
+# Включать осознанно: -e pxe_service_enabled=true
+pxe_service_enabled: false
+
+# --- Ubuntu Server -----------------------------------------------------------
+pxe_ubuntu_enabled: true
+pxe_ubuntu_release: "24.04.4"
+pxe_ubuntu_iso_url: >-
+  https://releases.ubuntu.com/24.04/ubuntu-{{ pxe_ubuntu_release }}-live-server-amd64.iso
+
+pxe_ubuntu_checksum_url: "https://releases.ubuntu.com/24.04/SHA256SUMS"
+
+pxe_ubuntu_hostname: ubuntu-server
+pxe_ubuntu_username: ubuntu
+# Хеш пароля: mkpasswd -m sha-512  (по умолчанию — "ubuntu", СМЕНИТЬ)
+pxe_ubuntu_password_hash: "$6$rounds=4096$saltsalt$8Wq0BM7CQF0F8hnEwYqCJdNRxKcVWQ8kSCJXOgN0nGDNJVdBIrHYKMLFbTfLXNXEXpvRnb5F5PLwmT.Ir6Aq3."
+pxe_ubuntu_authorized_keys: []
+
+# --- Proxmox VE --------------------------------------------------------------
+# Выключено: штатная подготовка образа (prepare-iso --pxe) работает только на
+# amd64, а под qemu-эмуляцией на arm64-стенде утилита не читает ISO. Без неё
+# установщик не находит источник: sanboot отдаёт CD через BIOS, но ядро Linux
+# эту эмуляцию не видит. Proxmox поставляется пунктом netboot.xyz.
+# На amd64-хосте ветку можно включить — код рабочий.
+pxe_proxmox_enabled: false
+pxe_proxmox_release: "9.2-1"
+pxe_proxmox_iso_url: >-
+  https://enterprise.proxmox.com/iso/proxmox-ve_{{ pxe_proxmox_release }}.iso
+
+pxe_proxmox_checksum_url: "https://enterprise.proxmox.com/iso/SHA256SUMS"
+
+# Адрес файла ответов — сообщается установщику через DHCP-опцию 250
+pxe_proxmox_answer_url: "http://{{ pxe_server_ip }}/proxmox/answer.toml"
+
+pxe_proxmox_fqdn: pve.local
+pxe_proxmox_mailto: admin@example.com
+pxe_proxmox_timezone: Europe/Moscow
+pxe_proxmox_country: ru
+pxe_proxmox_keyboard: en-us
+# Пароль root в открытом виде (требование формата answer.toml). СМЕНИТЬ.
+pxe_proxmox_root_password: "changeme123"
+pxe_proxmox_filesystem: ext4
+# Фильтр диска: пустой список = установщик возьмёт первый подходящий
+pxe_proxmox_disk_list: []
+
+# --- Загрузчики по архитектурам ----------------------------------------------
+# Загрузчики по архитектурам клиента (DHCP option 93, client-arch).
+# Клиент сам сообщает свою архитектуру — dnsmasq отдаёт соответствующий файл.
+# Добавить архитектуру = добавить запись здесь, логика не меняется.
+#   source: package — файл берётся из пакета ipxe (лежит в pxe_ipxe_pkg_dir)
+#   source: url     — файл скачивается с boot.ipxe.org
+pxe_ipxe_pkg_dir: /usr/lib/ipxe
+
+# Дополнительные загрузчики, скачиваемые с boot.ipxe.org.
+# snponly.efi работает через сетевой стек прошивки UEFI вместо собственных
+# драйверов iPXE — выручает на картах, где штатный загрузчик виснет.
+pxe_extra_loaders:
+  - name: snponly.efi
+    url: http://boot.ipxe.org/x86_64-efi/snponly.efi
+
+# Персональный загрузчик для конкретной машины (по MAC), когда общий
+# не работает:
+#   - mac: 11:22:33:44:55:66
+#     loader: snponly.efi
+pxe_loader_overrides: []
+
+pxe_architectures:
+  - name: bios-x86
+    client_arch: 0
+    loader: undionly.kpxe
+    source: package
+
+  - name: uefi-x86-64
+    client_arch: 7
+    loader: ipxe.efi
+    source: package
+
+  - name: uefi-x86-64-alt
+    client_arch: 9
+    loader: ipxe.efi
+    source: package
+
+  - name: uefi-arm64
+    client_arch: 11
+    loader: ipxe-arm64.efi
+    source: url
+    url: https://boot.ipxe.org/arm64-efi/ipxe.efi

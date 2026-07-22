@@ -1,0 +1,77 @@
+# Managed by Ansible (role: pxe_server) — правки затрутся
+
+# Слушаем строго PXE-интерфейс, чтобы не отвечать в других сетях хоста.
+# Именно bind-dynamic, а не bind-interfaces: последний привязывает сокеты
+# намертво и ломает пересылку DNS-запросов вышестоящему серверу через
+# внешний интерфейс — клиенты получают DNS, который ничего не резолвит.
+interface={{ pxe_interface }}
+bind-dynamic
+
+{% if pxe_nat_enabled %}
+# Сервер выпускает сегмент наружу, поэтому честно объявляет себя шлюзом (3)
+# и резолвером (6). Upstream берём у systemd-resolved: в /etc/resolv.conf
+# лежит его заглушка 127.0.0.53, а реальные серверы — здесь.
+dhcp-option=3,{{ pxe_server_ip }}
+dhcp-option=6,{{ pxe_server_ip }}
+resolv-file=/run/systemd/resolve/resolv.conf
+{% if pxe_client_mtu %}
+# Путь наружу короче 1500 — без этого клиент шлёт слишком большие пакеты,
+# они молча теряются, и загрузка зависает.
+dhcp-option=26,{{ pxe_client_mtu }}
+{% endif %}
+{% else %}
+# Выхода наружу нет — не объявляем себя ни шлюзом, ни DNS, иначе клиенты
+# уводят на PXE-сегмент маршрут по умолчанию и теряют основную сеть.
+dhcp-option=3
+dhcp-option=6
+# DNS не поднимаем — только DHCP и TFTP
+port=0
+{% endif %}
+
+dhcp-range={{ pxe_dhcp_start }},{{ pxe_dhcp_end }},{{ pxe_dhcp_lease }}
+
+{% for mac in pxe_dhcp_ignore_macs %}
+dhcp-host={{ mac }},ignore
+{% endfor %}
+{% if pxe_dhcp_reservations %}
+
+# Постоянные адреса за машинами. Тег loader-* задаётся здесь же: отдельная
+# строка dhcp-host с тем же MAC затирала бы резервацию адреса.
+{% for r in pxe_dhcp_reservations %}
+dhcp-host={{ r.mac }},{{ r.ip }}{% if r.name is defined %},{{ r.name }}{% endif %}{% if r.loader is defined %},set:loader-{{ loop.index }}{% endif %}
+
+{% endfor %}
+{% endif %}
+
+enable-tftp
+tftp-root={{ pxe_tftp_root }}
+
+{% if pxe_proxmox_enabled %}
+# Автоустановщик Proxmox берёт адрес файла ответов из DHCP-опции 250.
+dhcp-option=250,"{{ pxe_proxmox_answer_url }}"
+{% endif %}
+
+# iPXE помечает свои запросы опцией 175. Без этого различения он получает
+# в ответ собственный загрузчик и грузит сам себя по кругу.
+dhcp-match=set:ipxe,175
+
+# Прошивка сетевой карты (ещё не iPXE): отдаём загрузчик под её архитектуру,
+# которую она сообщает в DHCP option 93.
+{% for arch in pxe_architectures %}
+dhcp-match=set:{{ arch.name }},option:client-arch,{{ arch.client_arch }}
+dhcp-boot=tag:{{ arch.name }},tag:!ipxe,{{ arch.loader }}
+{% endfor %}
+
+{% if pxe_dhcp_reservations | selectattr('loader', 'defined') | list %}
+
+# Персональные загрузчики: у части карт штатный iPXE виснет на длинных
+# передачах, snponly.efi работает через сетевой стек прошивки.
+{% for r in pxe_dhcp_reservations %}
+{% if r.loader is defined %}
+dhcp-boot=tag:loader-{{ loop.index }},tag:!ipxe,{{ r.loader }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+# Уже загрузившийся iPXE: отдаём скрипт меню.
+dhcp-boot=tag:ipxe,{{ pxe_boot_script }}

@@ -1,0 +1,79 @@
+---
+# Стоковый ISO Proxmox уже содержит пункт «Install Proxmox VE (Automated)»
+# и файл-маркер auto-installer-capable, поэтому пересобирать образ утилитой
+# proxmox-auto-install-assistant не требуется: ответы доставляются установщику
+# по HTTP, а адрес ответов сообщается через DHCP-опцию 250.
+#
+# Заодно это снимает зависимость от amd64-утилиты, которая на arm64-стенде
+# работала только под qemu-эмуляцией и не могла прочитать образ.
+
+- name: Create Proxmox directory
+  ansible.builtin.file:
+    path: "{{ pxe_http_root }}/proxmox"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Fetch upstream checksums
+  ansible.builtin.get_url:
+    url: "{{ pxe_proxmox_checksum_url }}"
+    dest: "{{ pxe_http_root }}/proxmox/SHA256SUMS"
+    owner: root
+    group: root
+    mode: "0644"
+    force: true
+
+- name: Read expected checksum
+  ansible.builtin.shell:
+    cmd: >-
+      awk '/proxmox-ve_{{ pxe_proxmox_release }}.iso$/ {print $1}'
+      {{ pxe_http_root }}/proxmox/SHA256SUMS
+  register: pxe_proxmox_expected
+  changed_when: false
+
+- name: Verify existing ISO
+  ansible.builtin.stat:
+    path: "{{ pxe_http_root }}/proxmox/proxmox-ve_{{ pxe_proxmox_release }}.iso"
+    checksum_algorithm: sha256
+    get_checksum: true
+  register: pxe_proxmox_iso
+
+# Незавершённый файл не удаляем — curl -C - докачает его с места обрыва.
+- name: Download Proxmox VE ISO
+  ansible.builtin.command:
+    cmd: >-
+      curl -fL --retry 5 --retry-delay 5 -C -
+      -o {{ pxe_http_root }}/proxmox/proxmox-ve_{{ pxe_proxmox_release }}.iso
+      {{ pxe_proxmox_iso_url }}
+  when: >-
+    pxe_proxmox_iso.stat.checksum | default('')
+    != pxe_proxmox_expected.stdout | trim
+  changed_when: true
+  async: 3600
+  poll: 15
+
+- name: Verify downloaded ISO
+  ansible.builtin.stat:
+    path: "{{ pxe_http_root }}/proxmox/proxmox-ve_{{ pxe_proxmox_release }}.iso"
+    checksum_algorithm: sha256
+    get_checksum: true
+  register: pxe_proxmox_verify
+
+- name: Fail when checksum does not match
+  ansible.builtin.assert:
+    that: pxe_proxmox_verify.stat.checksum == pxe_proxmox_expected.stdout | trim
+    fail_msg: >-
+      Контрольная сумма ISO не совпала с официальной.
+      Ожидалось {{ pxe_proxmox_expected.stdout | trim }},
+      получено {{ pxe_proxmox_verify.stat.checksum }}.
+    success_msg: Контрольная сумма ISO совпадает
+
+# Установщик забирает этот файл по адресу из DHCP-опции 250.
+- name: Install Proxmox answer file
+  ansible.builtin.template:
+    src: proxmox-answer.toml.j2
+    dest: "{{ pxe_http_root }}/proxmox/answer.toml"
+    owner: root
+    group: root
+    mode: "0644"

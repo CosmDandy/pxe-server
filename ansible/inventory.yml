@@ -1,0 +1,27 @@
+---
+# lima-pxe — хост из ssh.config, который Lima поддерживает сама
+# (порт меняется при пересоздании VM, поэтому берём его оттуда, а не хардкодим)
+pxe_servers:
+  hosts:
+    lima-pxe:
+      pxe_interface: lima0
+      # USB-Ethernet адаптеры хост-машины: мосту они видны как обычные
+      # клиенты и иначе разбирают адреса из PXE-пула
+      pxe_dhcp_ignore_macs:
+        - d0:37:45:44:6d:99   # en6 — рабочая сеть
+        - 68:da:73:a0:b8:92   # en5 — PXE-сегмент
+
+      # Целевые серверы: постоянные адреса, чтобы не гадать после каждой
+      # загрузки. Вне диапазона выдачи (100-200).
+      pxe_dhcp_reservations:
+        - mac: 18:66:da:12:55:18
+          ip: 192.168.50.20
+          name: t20
+          # штатный ipxe.efi виснет внутри netboot.xyz после boot.cfg
+          loader: snponly.efi
+        - mac: 48:4d:7e:ce:75:92
+          ip: 192.168.50.30
+          name: t30
+      ansible_ssh_common_args: >-
+        -F {{ lookup('env', 'HOME') }}/.lima/pxe/ssh.config
+        -o ControlMaster=auto -o ControlPersist=60s

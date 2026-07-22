@@ -1,0 +1,103 @@
+---
+- name: Create Ubuntu directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ pxe_http_root }}/ubuntu"
+    - "{{ pxe_http_root }}/ubuntu/autoinstall"
+
+- name: Fetch upstream checksums
+  ansible.builtin.get_url:
+    url: "{{ pxe_ubuntu_checksum_url }}"
+    dest: "{{ pxe_http_root }}/ubuntu/SHA256SUMS"
+    owner: root
+    group: root
+    mode: "0644"
+    force: true
+
+- name: Read expected checksum
+  ansible.builtin.shell:
+    cmd: >-
+      awk '/ubuntu-{{ pxe_ubuntu_release }}-live-server-amd64.iso$/ {print $1}'
+      {{ pxe_http_root }}/ubuntu/SHA256SUMS
+  register: pxe_ubuntu_expected
+  changed_when: false
+
+- name: Verify existing ISO
+  ansible.builtin.stat:
+    path: "{{ pxe_http_root }}/ubuntu/ubuntu-{{ pxe_ubuntu_release }}.iso"
+    checksum_algorithm: sha256
+    get_checksum: true
+  register: pxe_ubuntu_iso
+
+# Наличие файла ничего не доказывает: оборванная закачка тоже оставляет файл.
+# Решение принимаем по контрольной сумме, а докачиваем через -C - , поэтому
+# незавершённый файл специально НЕ удаляем.
+- name: Download Ubuntu live-server ISO
+  ansible.builtin.command:
+    cmd: >-
+      curl -fL --retry 5 --retry-delay 5 -C -
+      -o {{ pxe_http_root }}/ubuntu/ubuntu-{{ pxe_ubuntu_release }}.iso
+      {{ pxe_ubuntu_iso_url }}
+  when: pxe_ubuntu_iso.stat.checksum | default('') != pxe_ubuntu_expected.stdout | trim
+  changed_when: true
+  async: 3600
+  poll: 15
+
+- name: Verify downloaded ISO
+  ansible.builtin.stat:
+    path: "{{ pxe_http_root }}/ubuntu/ubuntu-{{ pxe_ubuntu_release }}.iso"
+    checksum_algorithm: sha256
+    get_checksum: true
+  register: pxe_ubuntu_verify
+
+- name: Fail when checksum does not match
+  ansible.builtin.assert:
+    that: pxe_ubuntu_verify.stat.checksum == pxe_ubuntu_expected.stdout | trim
+    fail_msg: >-
+      Контрольная сумма ISO не совпала с официальной.
+      Ожидалось {{ pxe_ubuntu_expected.stdout | trim }},
+      получено {{ pxe_ubuntu_verify.stat.checksum }}.
+    success_msg: Контрольная сумма ISO совпадает
+
+- name: Check whether Ubuntu kernel is already extracted
+  ansible.builtin.stat:
+    path: "{{ pxe_http_root }}/ubuntu/vmlinuz"
+  register: pxe_ubuntu_kernel
+
+# bsdtar читает ISO напрямую, без монтирования и без прав на loop-устройство.
+- name: Extract kernel and initrd from ISO
+  ansible.builtin.command:
+    cmd: >-
+      bsdtar -xf {{ pxe_http_root }}/ubuntu/ubuntu-{{ pxe_ubuntu_release }}.iso
+      -C {{ pxe_http_root }}/ubuntu
+      --strip-components=1
+      casper/vmlinuz casper/initrd
+    creates: "{{ pxe_http_root }}/ubuntu/vmlinuz"
+  when: not pxe_ubuntu_kernel.stat.exists
+
+- name: Fix permissions on extracted files
+  ansible.builtin.file:
+    path: "{{ pxe_http_root }}/ubuntu/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - vmlinuz
+    - initrd
+
+- name: Install autoinstall answer files
+  ansible.builtin.template:
+    src: "ubuntu-{{ item }}.j2"
+    dest: "{{ pxe_http_root }}/ubuntu/autoinstall/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - user-data
+    - meta-data
+    - vendor-data

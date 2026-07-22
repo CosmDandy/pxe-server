@@ -1,0 +1,23 @@
+minimumLimaVersion: 2.0.0
+
+# PXE-стенд: Debian 13 с dnsmasq (DHCP + TFTP) для загрузки серверов по сети.
+# Сеть pxe -> bridged на USB-Ethernet (en6),
+# описана в ~/.lima/_config/networks.yaml
+#
+# limactl start lima/pxe.yaml
+# limactl shell pxe
+
+base:
+- template:_images/debian-13
+- template:_default/mounts
+
+# socket_vmnet работает только с QEMU-бэкендом; VZ (Apple Virtualization)
+# его не поддерживает
+vmType: qemu
+
+cpus: 2
+memory: 2GiB
+disk: 20GiB
+
+networks:
+- lima: pxe

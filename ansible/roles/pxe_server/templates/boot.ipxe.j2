@@ -1,0 +1,75 @@
+#!ipxe
+# Managed by Ansible (role: pxe_server) - do not edit, changes are overwritten
+#
+# ASCII only: this menu is rendered by the BIOS console, which does not
+# understand UTF-8 - non-ASCII text shows up as garbage.
+
+set http http://{{ pxe_server_ip }}
+
+:menu
+menu PXE boot
+item --gap --   Install
+{% if pxe_ubuntu_enabled %}
+item ubuntu     Ubuntu Server {{ pxe_ubuntu_release }} (automated)
+{% endif %}
+{% if pxe_proxmox_enabled %}
+item proxmox    Proxmox VE {{ pxe_proxmox_release }} (automated)
+{% endif %}
+item --gap --   Other
+item netbootxyz netboot.xyz - Proxmox, memtest, utils (needs internet)
+item shell      iPXE shell
+item reboot     Reboot
+item poweroff   Power off
+item local      Boot from local disk (default)
+choose --default local --timeout {{ pxe_menu_timeout }} target && goto ${target}
+
+{% if pxe_ubuntu_enabled %}
+:ubuntu
+echo Loading Ubuntu {{ pxe_ubuntu_release }} installer...
+kernel ${http}/ubuntu/vmlinuz
+initrd ${http}/ubuntu/initrd
+# url=      - where the installer pulls the system image from
+# ds=       - cloud-init answer source; the trailing slash is required
+# network-config=disabled - otherwise cloud-init fails with Bootstrap unknown
+imgargs vmlinuz initrd=initrd ip=dhcp url=${http}/ubuntu/ubuntu-{{ pxe_ubuntu_release }}.iso autoinstall ds=nocloud-net;s=${http}/ubuntu/autoinstall/ network-config=disabled ramdisk_size=4000000 ---
+boot || goto failed
+{% endif %}
+
+{% if pxe_proxmox_enabled %}
+:proxmox
+echo Loading Proxmox VE {{ pxe_proxmox_release }} installer...
+echo The whole image is pulled into RAM - 4 GB or more required.
+echo In the installer menu pick: Install Proxmox VE (Automated)
+echo Answers are fetched from the URL in DHCP option 250.
+# sanboot serves the ISO as a virtual CD: the installer needs the full image,
+# kernel plus initrd (56 MB) is not enough to install from.
+sanboot --no-describe ${http}/proxmox/proxmox-ve_{{ pxe_proxmox_release }}.iso || goto failed
+{% endif %}
+
+:netbootxyz
+echo Chainloading netboot.xyz...
+# HTTP, not HTTPS: the iPXE binary shipped in Debian's ipxe package is built
+# without TLS support and fails any https:// chain with "Permission denied".
+chain --autofree {{ pxe_netbootxyz_url }} || goto failed
+
+:shell
+echo Type exit to return to the menu
+shell
+goto menu
+
+:reboot
+reboot
+
+# Позволяет гасить машину удалённо: без IPMI это единственный способ
+# выключить её, не подходя к кнопке.
+:poweroff
+poweroff
+
+:local
+echo Handing over to the local disk...
+exit 1
+
+:failed
+echo Boot failed. Returning to the menu in 5 seconds.
+sleep 5
+goto menu

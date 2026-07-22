@@ -1,0 +1,25 @@
+---
+# Именно restart, а не reload: смену listen-адреса reload не подхватывает —
+# процесс продолжает слушать старый.
+- name: Reload nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: restarted
+    enabled: true
+
+- name: Save iptables rules
+  ansible.builtin.command:
+    cmd: netfilter-persistent save
+  changed_when: true
+
+- name: Apply netplan
+  ansible.builtin.command: netplan apply
+  changed_when: true
+
+# Перезапуск только когда сервис осознанно включён — иначе роль
+# подняла бы DHCP в сеть, где его быть не должно.
+- name: Restart dnsmasq
+  ansible.builtin.systemd_service:
+    name: dnsmasq
+    state: restarted
+  when: pxe_service_enabled | bool
