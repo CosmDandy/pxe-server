@@ -1,5 +1,7 @@
 # pxe-server
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/CosmDandy/pxe-server)
+
 Переносимый PXE-сервер: разворачивает загрузку по сети, чтобы ставить систему
 на серверы без установочной флешки.
 
