@@ -1,5 +1,7 @@
 # pxe-server
 
+[![security](https://github.com/CosmDandy/pxe-server/actions/workflows/security.yml/badge.svg)](https://github.com/CosmDandy/pxe-server/actions/workflows/security.yml)
+[![license](https://img.shields.io/github/license/CosmDandy/pxe-server)](LICENSE)
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/CosmDandy/pxe-server)
 
 Переносимый PXE-сервер: разворачивает загрузку по сети, чтобы ставить систему
