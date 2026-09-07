@@ -1,8 +1,8 @@
 # pxe-server
 
-[![security](https://github.com/CosmDandy/pxe-server/actions/workflows/security.yml/badge.svg)](https://github.com/CosmDandy/pxe-server/actions/workflows/security.yml)
-[![license](https://img.shields.io/github/license/CosmDandy/pxe-server)](LICENSE)
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/CosmDandy/pxe-server)
+[![Open in GitHub Codespaces][codespaces]](https://codespaces.new/CosmDandy/pxe-server)
+
+[![build][build]](https://github.com/CosmDandy/pxe-server/actions/workflows/security.yml) [![ansible][ansible]](https://www.ansible.com) [![license][license]](LICENSE)
 
 Переносимый PXE-сервер: разворачивает загрузку по сети, чтобы ставить систему
 на серверы без установочной флешки.
@@ -205,3 +205,8 @@ packet не слышит. Старые прошивки тоже ломают Wo
 свой default route с низкой метрикой и перебивает выход в интернет, из-за чего
 `apt` перестаёт работать. Поэтому роль настраивает сеть до установки пакетов, а
 на PXE-интерфейсе задаёт статику без шлюза.
+
+[codespaces]: https://github.com/codespaces/badge.svg
+[build]: https://img.shields.io/github/actions/workflow/status/CosmDandy/pxe-server/security.yml?branch=master&style=flat&label=build&labelColor=21262d&logo=githubactions&logoColor=8b949e
+[ansible]: https://img.shields.io/badge/ansible-roles-00a8c8?style=flat&labelColor=21262d&logo=ansible&logoColor=8b949e
+[license]: https://img.shields.io/github/license/CosmDandy/pxe-server?style=flat&label=license&labelColor=21262d&color=484f58&logo=opensourceinitiative&logoColor=8b949e
